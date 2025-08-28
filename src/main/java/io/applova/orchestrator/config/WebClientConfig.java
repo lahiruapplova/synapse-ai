@@ -19,9 +19,6 @@ public class WebClientConfig {
     @Value("${api.jira.api-token}")
     private String jiraApiToken;
 
-    @Value("${api.sendgrid.api-key}")
-    private String sendgridApiKey;
-
     @Value("${api.gpt.base-url}")
     private String gptBaseUrl;
 
@@ -37,15 +34,6 @@ public class WebClientConfig {
         return WebClient.builder()
                 .baseUrl(jiraBaseUrl)
                 .defaultHeader("Authorization", "Basic " + encodedCredentials)
-                .defaultHeader("Content-Type", "application/json")
-                .build();
-    }
-
-    @Bean
-    public WebClient sendgridWebClient() {
-        return WebClient.builder()
-                .baseUrl("https://api.sendgrid.com/v3")
-                .defaultHeader("Authorization", "Bearer " + sendgridApiKey)
                 .defaultHeader("Content-Type", "application/json")
                 .build();
     }

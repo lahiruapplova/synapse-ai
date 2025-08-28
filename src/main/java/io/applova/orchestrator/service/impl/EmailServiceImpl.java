@@ -5,13 +5,13 @@ import io.applova.orchestrator.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import jakarta.mail.internet.MimeMessage;
 import java.util.UUID;
 
 @Slf4j
@@ -19,57 +19,98 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class EmailServiceImpl implements EmailService {
 
-    private final WebClient sendgridWebClient;
+    private final JavaMailSender mailSender;
 
-    @Value("${api.sendgrid.sender-email}")
+    @Value("${spring.mail.username}")
     private String senderEmail;
 
     @Override
     public Mono<String> sendAutoReply(ZohoWebhookPayload payload, String kbResponse) {
-        // Construct email payload
-        Map<String, Object> emailPayload = new HashMap<>();
-        
-        // Personalization
-        Map<String, Object> personalization = new HashMap<>();
-        List<Map<String, String>> to = List.of(
-            Map.of("email", payload.getContactEmail())
-        );
-        personalization.put("to", to);
-        personalization.put("subject", "Re: " + payload.getSubject());
+        return Mono.fromCallable(() -> {
+            try {
+                // Generate a unique message ID
+                String messageId = UUID.randomUUID().toString();
 
-        // Dynamic template data
-        Map<String, String> templateData = new HashMap<>();
-        templateData.put("subject", payload.getSubject());
-        templateData.put("gptResponse", kbResponse);
-        templateData.put("originalDescription", payload.getDescription());
-        personalization.put("dynamic_template_data", templateData);
+                // Create a MIME message
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
 
-        emailPayload.put("personalizations", List.of(personalization));
-        
-        // From and template
-        emailPayload.put("from", Map.of("email", senderEmail));
-        emailPayload.put("template_id", "YOUR_SENDGRID_DYNAMIC_TEMPLATE_ID"); // Replace with actual template ID
+                // Set email details
+                helper.setFrom(senderEmail);
+                helper.setTo(payload.getContactEmail());
+                helper.setSubject("Re: " + payload.getIssueTitle());
 
-        // Generate a unique message ID
-        String messageId = UUID.randomUUID().toString();
+                // Construct email body
+                String emailBody = buildEmailBody(payload, kbResponse);
+                helper.setText(emailBody, true); // true indicates HTML content
 
-        // Send email via SendGrid
-        return sendgridWebClient.post()
-                .uri("/mail/send")
-                .bodyValue(emailPayload)
-                .retrieve()
-                .bodyToMono(Void.class)
-                .thenReturn(messageId)
-                .doOnSuccess(id -> log.info("Sent auto-reply email to {}", payload.getContactEmail()))
-                .doOnError(ex -> log.error("Error sending auto-reply email: {}", ex.getMessage()));
+                // Send the email
+                mailSender.send(message);
+
+                log.info("Sent auto-reply email to {}", payload.getContactEmail());
+                return messageId;
+            } catch (Exception e) {
+                log.error("Error sending auto-reply email: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to send email", e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Mono<Void> sendStatusUpdate(String emailMessageId, String jiraKey, String newStatus) {
-        // This method would send a status update email
-        // In a real-world scenario, you'd fetch the original email details and send an update
-        return Mono.fromRunnable(() -> 
-            log.info("Sending status update email for ticket {} with new status {}", jiraKey, newStatus)
+        return Mono.fromCallable(() -> {
+            try {
+                // Create a MIME message for status update
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+                // Set email details
+                helper.setFrom(senderEmail);
+                helper.setTo(senderEmail); // Sending to internal email for status tracking
+                helper.setSubject("Ticket Status Update: " + jiraKey);
+
+                // Construct status update email body
+                String emailBody = buildStatusUpdateBody(emailMessageId, jiraKey, newStatus);
+                helper.setText(emailBody, true);
+
+                // Send the email
+                mailSender.send(message);
+
+                log.info("Sent status update email for ticket {}", jiraKey);
+                return null;
+            } catch (Exception e) {
+                log.error("Error sending status update email: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to send status update email", e);
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    private String buildEmailBody(ZohoWebhookPayload payload, String kbResponse) {
+        return String.format(
+            "<html><body>" +
+            "<h2>Auto-Reply for: %s</h2>" +
+            "<p><strong>Original Issue:</strong> %s</p>" +
+            "<p><strong>Response:</strong> %s</p>" +
+            "<p><strong>Contact Email:</strong> %s</p>" +
+            "</body></html>",
+            payload.getIssueTitle(),
+            payload.getIssueDescription(),
+            kbResponse,
+            payload.getContactEmail()
+        );
+    }
+
+    private String buildStatusUpdateBody(String emailMessageId, String jiraKey, String newStatus) {
+        return String.format(
+            "<html><body>" +
+            "<h2>Ticket Status Update</h2>" +
+            "<p><strong>Ticket Key:</strong> %s</p>" +
+            "<p><strong>New Status:</strong> %s</p>" +
+            "<p><strong>Original Email Message ID:</strong> %s</p>" +
+            "</body></html>",
+            jiraKey,
+            newStatus,
+            emailMessageId
         );
     }
 }

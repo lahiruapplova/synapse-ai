@@ -53,6 +53,10 @@ public class ZohoWebhookPayload {
     @JsonProperty("zohoTic")
     private String zohoTicketNumber;
 
+    @JsonProperty("contactEmail")
+    @NotBlank(message = "Contact email is required")
+    private String contactEmail;
+
     // Mapping method to convert severity to Jira priority
     public String mapSeverityToJiraPriority() {
         switch (this.issueSeverity) {
