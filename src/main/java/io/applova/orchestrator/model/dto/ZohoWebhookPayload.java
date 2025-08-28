@@ -37,6 +37,4 @@ public class ZohoWebhookPayload {
 
     @JsonProperty("module")
     private String module;
-
-    // Additional metadata or custom fields can be added here
 }

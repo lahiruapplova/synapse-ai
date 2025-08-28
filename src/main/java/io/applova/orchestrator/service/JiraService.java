@@ -24,4 +24,3 @@ public interface JiraService {
      */
     Mono<Void> updateTicketStatus(String ticketKey, String newStatus);
 }
-
