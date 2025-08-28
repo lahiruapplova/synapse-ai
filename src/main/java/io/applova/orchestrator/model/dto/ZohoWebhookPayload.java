@@ -8,33 +8,74 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ZohoWebhookPayload {
-    @NotBlank(message = "Record ID is required")
-    @JsonProperty("record_id")
-    private String recordId;
+    @JsonProperty("iTitle")
+    @NotBlank(message = "Issue Title is required")
+    private String issueTitle;
 
-    @NotBlank(message = "Subject is required")
-    @JsonProperty("subject")
-    private String subject;
+    @JsonProperty("iDesc")
+    private String issueDescription;
 
-    @JsonProperty("description")
-    private String description;
+    @JsonProperty("eta")
+    private String estimatedTimeOfArrival;
 
-    @JsonProperty("tag")
-    private TicketTag tag;
+    @JsonProperty("bizProds")
+    private List<String> businessProducts;
 
-    @JsonProperty("contact_email")
-    private String contactEmail;
+    @JsonProperty("bizName")
+    private String businessName;
 
-    @JsonProperty("created_time")
-    private Instant createdTime;
+    @JsonProperty("bizRevClass")
+    private String businessRevenueClass;
 
-    @JsonProperty("module")
-    private String module;
+    @JsonProperty("bizId")
+    private String businessId;
+
+    @JsonProperty("iProds")
+    private List<String> issueProducts;
+
+    @JsonProperty("iSev")
+    private String issueSeverity;
+
+    @JsonProperty("subUser")
+    private String submittingUser;
+
+    @JsonProperty("iType")
+    private String issueType;
+
+    @JsonProperty("zohoTic")
+    private String zohoTicketNumber;
+
+    // Mapping method to convert severity to Jira priority
+    public String mapSeverityToJiraPriority() {
+        switch (this.issueSeverity) {
+            case "High":
+                return "High";
+            case "Medium":
+                return "Medium";
+            case "Low":
+                return "Low";
+            default:
+                return "Medium";
+        }
+    }
+
+    // Mapping method to convert issue type to Jira issue type
+    public String mapIssueTypeToJiraIssueType() {
+        switch (this.issueType) {
+            case "Bug":
+                return "Bug";
+            case "Feature":
+                return "New Feature";
+            default:
+                return "Task";
+        }
+    }
 }

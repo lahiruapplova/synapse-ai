@@ -34,13 +34,18 @@ public class JiraServiceImpl implements JiraService {
         fields.put("project", project);
 
         // Set summary and description
-        fields.put("summary", payload.getSubject());
+        fields.put("summary", payload.getIssueTitle());
         fields.put("description", buildTicketDescription(payload));
 
-        // Set issue type (assuming "Task" type)
+        // Set issue type based on payload
         Map<String, String> issueType = new HashMap<>();
-        issueType.put("name", "Task");
+        issueType.put("name", payload.mapIssueTypeToJiraIssueType());
         fields.put("issuetype", issueType);
+
+        // Set priority based on severity
+        Map<String, String> priority = new HashMap<>();
+        priority.put("name", payload.mapSeverityToJiraPriority());
+        fields.put("priority", priority);
 
         issuePayload.put("fields", fields);
 
@@ -86,12 +91,16 @@ public class JiraServiceImpl implements JiraService {
     private String buildTicketDescription(ZohoWebhookPayload payload) {
         StringBuilder description = new StringBuilder();
         description.append("*Ticket Details from Zoho CRM*\n\n");
-        description.append("*Subject:* ").append(payload.getSubject()).append("\n");
-        description.append("*Description:* ").append(payload.getDescription()).append("\n");
-        description.append("*Contact Email:* ").append(payload.getContactEmail()).append("\n");
-        description.append("*Zoho Record ID:* ").append(payload.getRecordId()).append("\n");
-        description.append("*Tag:* ").append(payload.getTag()).append("\n");
-        description.append("*Created Time:* ").append(payload.getCreatedTime()).append("\n");
+        description.append("*Issue Title:* ").append(payload.getIssueTitle()).append("\n");
+        description.append("*Issue Description:* ").append(payload.getIssueDescription()).append("\n");
+        description.append("*Business Name:* ").append(payload.getBusinessName()).append("\n");
+        description.append("*Business ID:* ").append(payload.getBusinessId()).append("\n");
+        description.append("*Business Revenue Class:* ").append(payload.getBusinessRevenueClass()).append("\n");
+        description.append("*Business Products:* ").append(String.join(", ", payload.getBusinessProducts())).append("\n");
+        description.append("*Issue Products:* ").append(String.join(", ", payload.getIssueProducts())).append("\n");
+        description.append("*Submitting User:* ").append(payload.getSubmittingUser()).append("\n");
+        description.append("*Estimated Time of Arrival:* ").append(payload.getEstimatedTimeOfArrival()).append("\n");
+        description.append("*Zoho Ticket Number:* ").append(payload.getZohoTicketNumber()).append("\n");
 
         return description.toString();
     }
