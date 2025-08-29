@@ -19,6 +19,7 @@ import io.applova.orchestrator.service.TicketService;
 import io.applova.orchestrator.service.EmailService;
 import org.springframework.beans.factory.annotation.Autowired;
 import reactor.core.publisher.Mono;
+import io.applova.orchestrator.model.TicketMapping;
 
 @Slf4j
 @RestController
@@ -127,6 +128,11 @@ public class JiraWebhookController {
             log.error("Processing Webhook - Issue: {}, Status: {}, Event: {}", 
                 details.issueKey, details.status, details.webhookEvent);
             
+            // Handle ticket creation event
+            if ("jira:issue_created".equals(details.webhookEvent)) {
+                return handleTicketCreation(details);
+            }
+            
             // Check if this is a status change event
             if ("jira:issue_updated".equals(details.webhookEvent)) {
                 // Find the existing ticket mapping
@@ -135,15 +141,8 @@ public class JiraWebhookController {
                         // Update ticket status
                         return ticketService.updateTicketStatus(details.issueKey, details.status)
                             .flatMap(updatedMapping -> {
-                                // Send status update email if email message ID exists
-                                if (updatedMapping.getEmailMessageId() != null) {
-                                    return emailService.sendStatusUpdate(
-                                        updatedMapping.getEmailMessageId(), 
-                                        details.issueKey, 
-                                        details.status
-                                    ).thenReturn(ResponseEntity.ok("Webhook processed with email notification"));
-                                }
-                                return Mono.just(ResponseEntity.ok("Webhook processed without email"));
+                                // Always attempt to send status update email
+                                return sendStatusUpdateEmail(updatedMapping, details);
                             });
                     })
                     .onErrorResume(ex -> {
@@ -160,6 +159,67 @@ public class JiraWebhookController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Processing error: " + e.getMessage());
         }
+    }
+
+    private ResponseEntity<String> handleTicketCreation(WebhookDetails details) {
+        try {
+            // Attempt to create initial email thread
+            // Note: You'll need to modify this to get the actual Zoho record ID
+            return emailService.createInitialTicketEmail("UNKNOWN_ZOHO_RECORD", details.issueKey, details.status)
+                .flatMap(emailMessageId -> {
+                    // Save ticket mapping with the new email message ID
+                    return ticketService.saveMapping("UNKNOWN_ZOHO_RECORD", details.issueKey, emailMessageId, "Initial Ticket")
+                        .map(savedMapping -> ResponseEntity.ok("Ticket created with initial email thread"));
+                })
+                .onErrorResume(ex -> {
+                    log.error("Error creating initial ticket email for {}: {}", details.issueKey, ex.getMessage());
+                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body("Failed to create initial ticket email: " + ex.getMessage()));
+                })
+                .block(); // Convert to blocking for compatibility with ResponseEntity
+        } catch (Exception e) {
+            log.error("Unexpected error in ticket creation", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Unexpected error in ticket creation: " + e.getMessage());
+        }
+    }
+
+    private Mono<ResponseEntity<String>> sendStatusUpdateEmail(TicketMapping updatedMapping, WebhookDetails details) {
+        // Always attempt to send status update email, creating one if no email message ID exists
+        Mono<Void> emailSendingMono;
+        if (updatedMapping.getEmailMessageId() != null) {
+            // Use existing email message ID
+            emailSendingMono = emailService.sendStatusUpdate(
+                updatedMapping.getEmailMessageId(), 
+                details.issueKey, 
+                details.status
+            );
+        } else {
+            // Create a new email thread if no existing message ID
+            emailSendingMono = emailService.createInitialTicketEmail(
+                "UNKNOWN_ZOHO_RECORD", 
+                details.issueKey, 
+                details.status
+            ).flatMap(newEmailMessageId -> {
+                // Update the ticket mapping with the new email message ID
+                updatedMapping.setEmailMessageId(newEmailMessageId);
+                return ticketService.saveMapping(
+                    "UNKNOWN_ZOHO_RECORD", 
+                    details.issueKey, 
+                    newEmailMessageId, 
+                    "Status Update Email"
+                ).then();
+            });
+        }
+        
+        // Return a response based on email sending result
+        return emailSendingMono
+            .map(__ -> ResponseEntity.ok("Webhook processed with email notification"))
+            .onErrorResume(ex -> {
+                log.error("Error sending status update email for {}: {}", details.issueKey, ex.getMessage());
+                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to send status update email: " + ex.getMessage()));
+            });
     }
 
     // Inner class to hold webhook details
