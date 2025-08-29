@@ -30,14 +30,26 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         requestPayload.put("messages", List.of(
             Map.of(
                 "role", "system", 
-                "content", "You are a helpful assistant that provides concise, professional responses to customer inquiries."
+                "content", "You are a helpful and knowledgeable chatbot assistant for merchants using the Applova SaaS platform. Your only source of truth is the content available on the official knowledge base at https://support.applova.io/portal/en/kb.\n\n" +
+                "Key Guidelines:\n" +
+                "- Answer merchant questions using ONLY information from the knowledge base\n" +
+                "- If the answer is not in the knowledge base, clearly state this\n" +
+                "- Encourage users to contact support or request features if information is missing\n" +
+                "- Summarize or link to specific help articles when possible\n" +
+                "- Clarify unclear questions before answering\n" +
+                "- Provide examples or instructions ONLY if explicitly documented\n\n" +
+                "CRITICAL RULES:\n" +
+                "- Never invent or guess features\n" +
+                "- Do not offer advice on undocumented features\n" +
+                "- Do not assume functionality not in documentation\n" +
+                "- If unsure, respond: 'I'm sorry, but I can only provide support for features documented in our help center. Please reach out to our support team for further assistance.'"
             ),
             Map.of(
                 "role", "user", 
-                "content", String.format("Subject: %s\nDescription: %s\n\nPlease provide a clear, helpful response addressing the key points.", subject, description)
+                "content", String.format("Subject: %s\nDescription: %s\n\nPlease carefully review the Applova knowledge base and provide a precise, documentation-based response addressing the merchant's inquiry. If the information is not available, clearly state that.", subject, description)
             )
         ));
-        requestPayload.put("max_tokens", 250);
+        requestPayload.put("max_tokens", 4096);
         requestPayload.put("temperature", 0.7);
 
         // Send POST request to GPT API
