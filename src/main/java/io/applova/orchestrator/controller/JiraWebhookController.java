@@ -15,6 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
+import io.applova.orchestrator.service.TicketService;
+import io.applova.orchestrator.service.EmailService;
+import org.springframework.beans.factory.annotation.Autowired;
+import reactor.core.publisher.Mono;
 
 @Slf4j
 @RestController
@@ -22,6 +26,10 @@ import java.util.Enumeration;
 public class JiraWebhookController {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Inject required services as final fields
+    private final TicketService ticketService;
+    private final EmailService emailService;
 
     @PostMapping("/api/jira-webhook")
     public ResponseEntity<String> handleJiraWebhook(
@@ -118,6 +126,33 @@ public class JiraWebhookController {
         try {
             log.error("Processing Webhook - Issue: {}, Status: {}, Event: {}", 
                 details.issueKey, details.status, details.webhookEvent);
+            
+            // Check if this is a status change event
+            if ("jira:issue_updated".equals(details.webhookEvent)) {
+                // Find the existing ticket mapping
+                return ticketService.findByJiraKey(details.issueKey)
+                    .flatMap(ticketMapping -> {
+                        // Update ticket status
+                        return ticketService.updateTicketStatus(details.issueKey, details.status)
+                            .flatMap(updatedMapping -> {
+                                // Send status update email if email message ID exists
+                                if (updatedMapping.getEmailMessageId() != null) {
+                                    return emailService.sendStatusUpdate(
+                                        updatedMapping.getEmailMessageId(), 
+                                        details.issueKey, 
+                                        details.status
+                                    ).thenReturn(ResponseEntity.ok("Webhook processed with email notification"));
+                                }
+                                return Mono.just(ResponseEntity.ok("Webhook processed without email"));
+                            });
+                    })
+                    .onErrorResume(ex -> {
+                        log.error("Error processing webhook for issue {}: {}", details.issueKey, ex.getMessage());
+                        return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body("Processing error: " + ex.getMessage()));
+                    })
+                    .block(); // Convert to blocking for compatibility with ResponseEntity
+            }
             
             return ResponseEntity.ok("Webhook processed successfully");
         } catch (Exception e) {
