@@ -54,24 +54,35 @@ public class ZohoWebhookController {
     }
 
     private Mono<Void> processWebhookByTag(ZohoWebhookPayload payload) {
-        // Determine ticket type based on issue type and severity
-        String issueType = payload.getIssueType();
-        String issueSeverity = payload.getIssueSeverity();
-
-        // Determine ticket tag based on issue type and severity
-        TicketTag tag = determineTicketTag(issueType, issueSeverity);
-
-        switch (tag) {
-            case FEATURE:
-            case CLARIFICATION:
-                return processIntelligentTicket(payload);
-            case SUPPORT:
-            case BUG:
-                return processStandardTicket(payload);
-            default:
-                log.warn("Received webhook with unknown tag: {}", tag);
+        // Check if a ticket for this Zoho record already exists
+        return ticketService.findByZohoRecordId(payload.getZohoTicketNumber())
+            .flatMap(existingMapping -> {
+                // If a ticket already exists, log and return without creating a new one
+                log.warn("Ticket for Zoho record {} already exists with Jira key {}", 
+                    payload.getZohoTicketNumber(), existingMapping.getJiraKey());
                 return Mono.empty();
-        }
+            })
+            .switchIfEmpty(Mono.defer(() -> {
+                // Determine ticket type based on issue type and severity
+                String issueType = payload.getIssueType();
+                String issueSeverity = payload.getIssueSeverity();
+
+                // Determine ticket tag based on issue type and severity
+                TicketTag tag = determineTicketTag(issueType, issueSeverity);
+
+                switch (tag) {
+                    case FEATURE:
+                    case CLARIFICATION:
+                        return processIntelligentTicket(payload);
+                    case SUPPORT:
+                    case BUG:
+                        return processStandardTicket(payload);
+                    default:
+                        log.warn("Received webhook with unknown tag: {}", tag);
+                        return Mono.empty();
+                }
+            }))
+            .then(); // Ensure the method returns Mono<Void>
     }
 
     private TicketTag determineTicketTag(String issueType, String issueSeverity) {

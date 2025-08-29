@@ -71,4 +71,20 @@ public class TicketServiceImpl implements TicketService {
         .doOnSuccess(updatedMapping -> log.info("Successfully updated ticket mapping status for Jira key: {} to {}", jiraKey, newStatus))
         .doOnError(ex -> log.error("Error updating ticket mapping status: {}", ex.getMessage(), ex));
     }
+
+    @Override
+    public Mono<TicketMapping> findByZohoRecordId(String zohoRecordId) {
+        // Find ticket mapping by Zoho record ID
+        return Mono.fromCallable(() -> 
+            ticketMappingRepository.findByZohoRecordId(zohoRecordId)
+                .orElse(null)
+        ).publishOn(Schedulers.boundedElastic())
+        .doOnSuccess(mapping -> {
+            if (mapping != null) {
+                log.info("Found ticket mapping for Zoho record ID: {}", zohoRecordId);
+            } else {
+                log.info("No ticket mapping found for Zoho record ID: {}", zohoRecordId);
+            }
+        });
+    }
 }

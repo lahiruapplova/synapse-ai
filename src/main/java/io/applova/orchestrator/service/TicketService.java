@@ -27,6 +27,14 @@ public interface TicketService {
     Mono<TicketMapping> findByJiraKey(String jiraKey);
 
     /**
+     * Find a ticket mapping by its Zoho record ID.
+     *
+     * @param zohoRecordId the Zoho record identifier
+     * @return Mono containing the TicketMapping if found
+     */
+    Mono<TicketMapping> findByZohoRecordId(String zohoRecordId);
+
+    /**
      * Update the status of an existing ticket mapping.
      *
      * @param jiraKey   The Jira ticket key

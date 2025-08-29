@@ -15,4 +15,12 @@ public interface TicketMappingRepository extends JpaRepository<TicketMapping, Lo
      * @return Optional containing the TicketMapping if found
      */
     Optional<TicketMapping> findByJiraKey(String jiraKey);
+
+    /**
+     * Find a ticket mapping by its Zoho record ID.
+     * 
+     * @param zohoRecordId the Zoho record identifier
+     * @return Optional containing the TicketMapping if found
+     */
+    Optional<TicketMapping> findByZohoRecordId(String zohoRecordId);
 }

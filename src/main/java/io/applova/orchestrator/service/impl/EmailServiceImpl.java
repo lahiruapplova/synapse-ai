@@ -13,6 +13,9 @@ import reactor.core.scheduler.Schedulers;
 
 import jakarta.mail.internet.MimeMessage;
 import java.util.UUID;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Collections;
 
 @Slf4j
 @Service
@@ -23,6 +26,9 @@ public class EmailServiceImpl implements EmailService {
 
     @Value("${spring.mail.username}")
     private String senderEmail;
+
+    // Add a simple cache to track sent initial emails
+    private final Set<String> sentInitialEmails = Collections.synchronizedSet(new HashSet<>());
 
     @Override
     public Mono<String> sendAutoReply(ZohoWebhookPayload payload, String kbResponse) {
@@ -88,6 +94,13 @@ public class EmailServiceImpl implements EmailService {
     @Override
     public Mono<String> createInitialTicketEmail(String zohoRecordId, String jiraKey, String status) {
         return Mono.fromCallable(() -> {
+            // Check if an initial email for this ticket has already been sent
+            String emailKey = jiraKey + "_" + status;
+            if (sentInitialEmails.contains(emailKey)) {
+                log.info("Initial email for ticket {} with status {} already sent. Skipping.", jiraKey, status);
+                return null;
+            }
+
             try {
                 // Generate a unique message ID
                 String emailMessageId = UUID.randomUUID().toString();
@@ -115,6 +128,9 @@ public class EmailServiceImpl implements EmailService {
                 
                 // Send the email
                 mailSender.send(message);
+                
+                // Mark this email as sent to prevent duplicates
+                sentInitialEmails.add(emailKey);
                 
                 log.info("Created initial email thread for Jira ticket: {}", jiraKey);
                 return emailMessageId;

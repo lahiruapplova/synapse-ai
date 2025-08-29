@@ -84,7 +84,6 @@ public class JiraWebhookController {
     private WebhookDetails extractWebhookDetails(JsonNode payloadJson) {
         WebhookDetails details = new WebhookDetails();
         
-        // Multiple strategies to extract issue key and status
         try {
             // Strategy 1: Direct paths
             details.issueKey = extractStringValue(payloadJson, 
@@ -99,6 +98,10 @@ public class JiraWebhookController {
             // Strategy 2: Webhook event type
             details.webhookEvent = extractStringValue(payloadJson, 
                 "webhookEvent", "webhook_event", "event");
+            
+            // Strategy 3: Extract Zoho record ID
+            details.zohoRecordId = extractStringValue(payloadJson, 
+                "zoho_record_id", "zohoRecordId", "zoho.record_id");
         } catch (Exception e) {
             log.error("Error extracting webhook details", e);
         }
@@ -164,11 +167,13 @@ public class JiraWebhookController {
     private ResponseEntity<String> handleTicketCreation(WebhookDetails details) {
         try {
             // Attempt to create initial email thread
-            // Note: You'll need to modify this to get the actual Zoho record ID
-            return emailService.createInitialTicketEmail("UNKNOWN_ZOHO_RECORD", details.issueKey, details.status)
+            // Use the Jira key as a fallback if no Zoho record ID is available
+            String zohoRecordId = details.zohoRecordId != null ? details.zohoRecordId : details.issueKey;
+            
+            return emailService.createInitialTicketEmail(zohoRecordId, details.issueKey, details.status)
                 .flatMap(emailMessageId -> {
                     // Save ticket mapping with the new email message ID
-                    return ticketService.saveMapping("UNKNOWN_ZOHO_RECORD", details.issueKey, emailMessageId, "Initial Ticket")
+                    return ticketService.saveMapping(zohoRecordId, details.issueKey, emailMessageId, "Initial Ticket")
                         .map(savedMapping -> ResponseEntity.ok("Ticket created with initial email thread"));
                 })
                 .onErrorResume(ex -> {
@@ -227,6 +232,7 @@ public class JiraWebhookController {
         String issueKey;
         String status;
         String webhookEvent;
+        String zohoRecordId;  // New field to store Zoho record ID
 
         boolean isValid() {
             return issueKey != null && status != null;
@@ -238,6 +244,7 @@ public class JiraWebhookController {
                     "issueKey='" + issueKey + '\'' +
                     ", status='" + status + '\'' +
                     ", webhookEvent='" + webhookEvent + '\'' +
+                    ", zohoRecordId='" + zohoRecordId + '\'' +
                     '}';
         }
     }
