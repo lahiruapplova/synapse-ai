@@ -2,21 +2,18 @@ package io.applova.orchestrator.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.applova.orchestrator.model.dto.JiraWebhookPayload;
-import io.applova.orchestrator.service.EmailService;
-import io.applova.orchestrator.service.TicketService;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Mono;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 
 @Slf4j
@@ -24,15 +21,43 @@ import java.util.Enumeration;
 @RequiredArgsConstructor
 public class JiraWebhookController {
 
-    private final TicketService ticketService;
-    private final EmailService emailService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/api/jira-webhook")
     public ResponseEntity<String> handleJiraWebhook(
-            @RequestBody String rawPayload,
             HttpServletRequest request
     ) {
-        // Log all incoming webhook details
+        try {
+            // Read raw payload
+            String rawPayload = StreamUtils.copyToString(request.getInputStream(), StandardCharsets.UTF_8);
+            
+            // Log comprehensive request details
+            logRequestDetails(request, rawPayload);
+            
+            // Parse payload
+            JsonNode payloadJson = objectMapper.readTree(rawPayload);
+            
+            // Extract webhook details with multiple fallback strategies
+            WebhookDetails details = extractWebhookDetails(payloadJson);
+            
+            // Log extracted details
+            log.error("Extracted Webhook Details: {}", details);
+            
+            // Validate and process
+            if (details.isValid()) {
+                return processWebhookPayload(details);
+            } else {
+                log.error("Invalid webhook payload structure");
+                return ResponseEntity.badRequest().body("Invalid payload structure");
+            }
+        } catch (Exception e) {
+            log.error("Comprehensive Webhook Processing Error", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Webhook processing failed: " + e.getMessage());
+        }
+    }
+
+    private void logRequestDetails(HttpServletRequest request, String rawPayload) {
         log.error("===== JIRA WEBHOOK RECEIVED =====");
         log.error("Remote Address: {}", request.getRemoteAddr());
         log.error("Request Method: {}", request.getMethod());
@@ -44,49 +69,81 @@ public class JiraWebhookController {
             log.error("Header - {}: {}", headerName, request.getHeader(headerName));
         }
         
-        // Log raw payload
         log.error("Raw Payload: {}", rawPayload);
-
-        try {
-            // Parse the payload
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode payloadJson = objectMapper.readTree(rawPayload);
-            
-            // Extract key information
-            String webhookEvent = payloadJson.path("webhookEvent").asText();
-            String issueKey = payloadJson.path("issue_key").asText();
-            JsonNode issueNode = payloadJson.path("issue");
-            String status = issueNode.path("fields").path("status").path("name").asText();
-
-            log.error("Webhook Event: {}", webhookEvent);
-            log.error("Issue Key: {}", issueKey);
-            log.error("Issue Status: {}", status);
-
-            // Validate payload
-            if (StringUtils.hasText(issueKey) && StringUtils.hasText(status)) {
-                // Process the webhook
-                return processWebhookPayload(issueKey, status);
-            } else {
-                log.error("Invalid webhook payload: Missing issue key or status");
-                return ResponseEntity.badRequest().body("Invalid payload");
-            }
-        } catch (Exception e) {
-            log.error("Error processing Jira webhook", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Error processing webhook: " + e.getMessage());
-        }
     }
 
-    private ResponseEntity<String> processWebhookPayload(String issueKey, String status) {
+    private WebhookDetails extractWebhookDetails(JsonNode payloadJson) {
+        WebhookDetails details = new WebhookDetails();
+        
+        // Multiple strategies to extract issue key and status
         try {
-            // Simulate webhook processing
-            log.error("Processing webhook for Issue: {}, Status: {}", issueKey, status);
+            // Strategy 1: Direct paths
+            details.issueKey = extractStringValue(payloadJson, 
+                "issue_key", "issue.key", "issue.fields.key", "key");
+            
+            details.status = extractStringValue(payloadJson, 
+                "issue.fields.status.name", 
+                "issue.status.name", 
+                "status.name", 
+                "fields.status.name");
+            
+            // Strategy 2: Webhook event type
+            details.webhookEvent = extractStringValue(payloadJson, 
+                "webhookEvent", "webhook_event", "event");
+        } catch (Exception e) {
+            log.error("Error extracting webhook details", e);
+        }
+        
+        return details;
+    }
+
+    private String extractStringValue(JsonNode node, String... paths) {
+        for (String path : paths) {
+            String[] pathParts = path.split("\\.");
+            JsonNode currentNode = node;
+            
+            for (String part : pathParts) {
+                if (currentNode == null) break;
+                currentNode = currentNode.path(part);
+            }
+            
+            if (currentNode != null && !currentNode.isNull() && currentNode.isTextual()) {
+                return currentNode.asText();
+            }
+        }
+        return null;
+    }
+
+    private ResponseEntity<String> processWebhookPayload(WebhookDetails details) {
+        try {
+            log.error("Processing Webhook - Issue: {}, Status: {}, Event: {}", 
+                details.issueKey, details.status, details.webhookEvent);
             
             return ResponseEntity.ok("Webhook processed successfully");
         } catch (Exception e) {
             log.error("Error in webhook processing", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Processing error: " + e.getMessage());
+        }
+    }
+
+    // Inner class to hold webhook details
+    private static class WebhookDetails {
+        String issueKey;
+        String status;
+        String webhookEvent;
+
+        boolean isValid() {
+            return issueKey != null && status != null;
+        }
+
+        @Override
+        public String toString() {
+            return "WebhookDetails{" +
+                    "issueKey='" + issueKey + '\'' +
+                    ", status='" + status + '\'' +
+                    ", webhookEvent='" + webhookEvent + '\'' +
+                    '}';
         }
     }
 }
