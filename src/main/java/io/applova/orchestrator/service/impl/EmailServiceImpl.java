@@ -85,6 +85,46 @@ public class EmailServiceImpl implements EmailService {
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
+    @Override
+    public Mono<String> createInitialTicketEmail(String zohoRecordId, String jiraKey, String status) {
+        return Mono.fromCallable(() -> {
+            try {
+                // Generate a unique message ID
+                String emailMessageId = UUID.randomUUID().toString();
+                
+                // Prepare the email message
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true);
+                
+                // Set basic email details
+                helper.setFrom(senderEmail);
+                helper.setTo(senderEmail); // You might want to fetch the actual recipient dynamically
+                helper.setSubject("Ticket " + jiraKey + " - Initial Status: " + status);
+                
+                // Compose email body
+                String emailBody = String.format(
+                    "Ticket Details:\n" +
+                    "Zoho Record ID: %s\n" +
+                    "Jira Key: %s\n" +
+                    "Current Status: %s\n\n" +
+                    "This is an initial email thread created for tracking purposes.",
+                    zohoRecordId, jiraKey, status
+                );
+                
+                helper.setText(emailBody);
+                
+                // Send the email
+                mailSender.send(message);
+                
+                log.info("Created initial email thread for Jira ticket: {}", jiraKey);
+                return emailMessageId;
+            } catch (Exception e) {
+                log.error("Error creating initial ticket email: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to create initial ticket email", e);
+            }
+        }).publishOn(Schedulers.boundedElastic());
+    }
+
     private String buildEmailBody(ZohoWebhookPayload payload, String kbResponse) {
         return String.format(
             "<html><body>" +
@@ -101,17 +141,62 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private String buildStatusUpdateBody(String emailMessageId, String jiraKey, String newStatus) {
+        // Determine if the status indicates a functionality problem
+        boolean isProblemStatus = isProblemStatus(newStatus);
+        
+        String problemMessage = isProblemStatus 
+            ? "<p style='color: red; font-weight: bold;'>⚠️ IMPORTANT: Functionality is not working properly!</p>"
+            : "";
+        
         return String.format(
             "<html><body>" +
             "<h2>Ticket Status Update</h2>" +
+            "%s" + 
             "<p><strong>Ticket Key:</strong> %s</p>" +
             "<p><strong>New Status:</strong> %s</p>" +
             "<p><strong>Original Email Message ID:</strong> %s</p>" +
             "</body></html>",
+            problemMessage,
             jiraKey,
             newStatus,
             emailMessageId
         );
+    }
+    
+    /**
+     * Determines if the given status indicates a problem with functionality.
+     * 
+     * @param status The current ticket status
+     * @return true if the status suggests functionality issues, false otherwise
+     */
+    private boolean isProblemStatus(String status) {
+        // Expanded list of statuses that might indicate functionality problems
+        String[] problemStatuses = {
+            "blocked", 
+            "on hold", 
+            "in progress", 
+            "needs investigation", 
+            "bug", 
+            "unresolved",
+            "to be planned",
+            "pending",
+            "not started"
+        };
+        
+        // Convert status to lowercase for case-insensitive comparison
+        String lowercaseStatus = status.toLowerCase().trim();
+        
+        // Check for exact match or contains
+        for (String problemStatus : problemStatuses) {
+            if (lowercaseStatus.equals(problemStatus) || 
+                lowercaseStatus.contains(problemStatus)) {
+                log.info("Detected problem status: {} matches {}", lowercaseStatus, problemStatus);
+                return true;
+            }
+        }
+        
+        log.info("Status '{}' not considered a problem status", lowercaseStatus);
+        return false;
     }
 }
 

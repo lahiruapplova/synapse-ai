@@ -51,14 +51,24 @@ public class TicketServiceImpl implements TicketService {
     public Mono<TicketMapping> updateTicketStatus(String jiraKey, String newStatus) {
         // Find and update ticket mapping status
         return Mono.fromCallable(() -> {
+            log.info("Attempting to update ticket status for Jira key: {} to new status: {}", jiraKey, newStatus);
+            
             TicketMapping ticketMapping = ticketMappingRepository.findByJiraKey(jiraKey)
-                    .orElseThrow(() -> new RuntimeException("No ticket mapping found for Jira key: " + jiraKey));
+                    .orElseThrow(() -> {
+                        log.error("No ticket mapping found for Jira key: {}", jiraKey);
+                        return new RuntimeException("No ticket mapping found for Jira key: " + jiraKey);
+                    });
+            
+            log.info("Current ticket mapping details before update: {}", ticketMapping);
             
             ticketMapping.setStatus(newStatus);
-            return ticketMappingRepository.save(ticketMapping);
+            TicketMapping updatedMapping = ticketMappingRepository.save(ticketMapping);
+            
+            log.info("Updated ticket mapping details: {}", updatedMapping);
+            return updatedMapping;
         })
         .publishOn(Schedulers.boundedElastic())
-        .doOnSuccess(updatedMapping -> log.info("Updated ticket mapping status for Jira key: {} to {}", jiraKey, newStatus))
-        .doOnError(ex -> log.error("Error updating ticket mapping status: {}", ex.getMessage()));
+        .doOnSuccess(updatedMapping -> log.info("Successfully updated ticket mapping status for Jira key: {} to {}", jiraKey, newStatus))
+        .doOnError(ex -> log.error("Error updating ticket mapping status: {}", ex.getMessage(), ex));
     }
 }

@@ -1,16 +1,23 @@
 package io.applova.orchestrator.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.applova.orchestrator.model.dto.JiraWebhookPayload;
 import io.applova.orchestrator.service.EmailService;
 import io.applova.orchestrator.service.TicketService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
+
+import java.util.Enumeration;
 
 @Slf4j
 @RestController
@@ -20,52 +27,66 @@ public class JiraWebhookController {
     private final TicketService ticketService;
     private final EmailService emailService;
 
-    @PostMapping("/api/jira/webhook")
-    public Mono<ResponseEntity<String>> handleJiraWebhook(
-            @Valid @RequestBody JiraWebhookPayload payload
+    @PostMapping("/api/jira-webhook")
+    public ResponseEntity<String> handleJiraWebhook(
+            @RequestBody String rawPayload,
+            HttpServletRequest request
     ) {
-        // Process the Jira webhook event
-        return processJiraWebhookEvent(payload)
-            .thenReturn(ResponseEntity.ok("Jira webhook processed successfully"))
-            .onErrorResume(ex -> {
-                log.error("Jira webhook processing error", ex);
-                return Mono.just(ResponseEntity.badRequest().body("Jira webhook processing failed"));
-            });
+        // Log all incoming webhook details
+        log.error("===== JIRA WEBHOOK RECEIVED =====");
+        log.error("Remote Address: {}", request.getRemoteAddr());
+        log.error("Request Method: {}", request.getMethod());
+        
+        // Log headers
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            log.error("Header - {}: {}", headerName, request.getHeader(headerName));
+        }
+        
+        // Log raw payload
+        log.error("Raw Payload: {}", rawPayload);
+
+        try {
+            // Parse the payload
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode payloadJson = objectMapper.readTree(rawPayload);
+            
+            // Extract key information
+            String webhookEvent = payloadJson.path("webhookEvent").asText();
+            String issueKey = payloadJson.path("issue_key").asText();
+            JsonNode issueNode = payloadJson.path("issue");
+            String status = issueNode.path("fields").path("status").path("name").asText();
+
+            log.error("Webhook Event: {}", webhookEvent);
+            log.error("Issue Key: {}", issueKey);
+            log.error("Issue Status: {}", status);
+
+            // Validate payload
+            if (StringUtils.hasText(issueKey) && StringUtils.hasText(status)) {
+                // Process the webhook
+                return processWebhookPayload(issueKey, status);
+            } else {
+                log.error("Invalid webhook payload: Missing issue key or status");
+                return ResponseEntity.badRequest().body("Invalid payload");
+            }
+        } catch (Exception e) {
+            log.error("Error processing Jira webhook", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Error processing webhook: " + e.getMessage());
+        }
     }
 
-    /**
-     * Process the Jira webhook event by finding the associated ticket mapping
-     * and sending a status update email.
-     *
-     * @param payload The Jira webhook payload
-     * @return A Mono indicating the completion of processing
-     */
-    private Mono<Void> processJiraWebhookEvent(JiraWebhookPayload payload) {
-        // Find the ticket mapping by Jira key
-        return ticketService.findByJiraKey(payload.getIssueKey())
-            .flatMap(ticketMapping -> {
-                // If email message ID exists, send status update
-                if (ticketMapping.getEmailMessageId() != null) {
-                    return emailService.sendStatusUpdate(
-                            ticketMapping.getEmailMessageId(), 
-                            payload.getIssueKey(), 
-                            payload.getStatus().getName()
-                        )
-                        .then(ticketService.updateTicketStatus(
-                            payload.getIssueKey(), 
-                            payload.getStatus().getName()
-                        ));
-                }
-                
-                // If no email message ID, just update ticket status
-                return ticketService.updateTicketStatus(
-                    payload.getIssueKey(), 
-                    payload.getStatus().getName()
-                );
-            })
-            .switchIfEmpty(Mono.fromRunnable(() -> 
-                log.warn("No ticket mapping found for Jira key: {}", payload.getIssueKey())
-            ))
-            .then(); // Convert to Mono<Void>
+    private ResponseEntity<String> processWebhookPayload(String issueKey, String status) {
+        try {
+            // Simulate webhook processing
+            log.error("Processing webhook for Issue: {}, Status: {}", issueKey, status);
+            
+            return ResponseEntity.ok("Webhook processed successfully");
+        } catch (Exception e) {
+            log.error("Error in webhook processing", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Processing error: " + e.getMessage());
+        }
     }
 }

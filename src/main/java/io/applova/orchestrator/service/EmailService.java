@@ -25,5 +25,15 @@ public interface EmailService {
      * @return A Mono indicating the completion of sending the status update email
      */
     Mono<Void> sendStatusUpdate(String emailMessageId, String jiraKey, String newStatus);
+
+    /**
+     * Create an initial email thread for a ticket without an existing email.
+     *
+     * @param zohoRecordId The Zoho record ID
+     * @param jiraKey      The Jira ticket key
+     * @param status       The current status of the ticket
+     * @return A Mono containing the new email message ID
+     */
+    Mono<String> createInitialTicketEmail(String zohoRecordId, String jiraKey, String status);
 }
 
