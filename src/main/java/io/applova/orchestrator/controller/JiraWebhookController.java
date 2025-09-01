@@ -202,14 +202,14 @@ public class JiraWebhookController {
         } else {
             // Create a new email thread if no existing message ID
             emailSendingMono = emailService.createInitialTicketEmail(
-                "UNKNOWN_ZOHO_RECORD", 
+                updatedMapping.getZohoRecordId() != null ? updatedMapping.getZohoRecordId() : "UNKNOWN_ZOHO_RECORD", 
                 details.issueKey, 
                 details.status
             ).flatMap(newEmailMessageId -> {
                 // Update the ticket mapping with the new email message ID
                 updatedMapping.setEmailMessageId(newEmailMessageId);
                 return ticketService.saveMapping(
-                    "UNKNOWN_ZOHO_RECORD", 
+                    updatedMapping.getZohoRecordId() != null ? updatedMapping.getZohoRecordId() : "UNKNOWN_ZOHO_RECORD", 
                     details.issueKey, 
                     newEmailMessageId, 
                     "Status Update Email"

@@ -73,16 +73,27 @@ public class EmailServiceImpl implements EmailService {
                 // Set email details
                 helper.setFrom(senderEmail);
                 helper.setTo(senderEmail); // Sending to internal email for status tracking
+                // Normalize the email message ID to standard format if it's not already
+                String normalizedMessageId = normalizeMessageId(emailMessageId);
+                
+                // Generate a new unique message ID for this email
+                String newMessageId = generateMessageId();
+                
+                // Set threading headers to link this email to the original thread
+                message.setHeader("Message-ID", newMessageId);
+                message.setHeader("In-Reply-To", normalizedMessageId);
+                message.setHeader("References", normalizedMessageId);
+                
                 helper.setSubject("Ticket Status Update: " + jiraKey);
 
                 // Construct status update email body
-                String emailBody = buildStatusUpdateBody(emailMessageId, jiraKey, newStatus);
+                String emailBody = buildStatusUpdateBody(normalizedMessageId, jiraKey, newStatus);
                 helper.setText(emailBody, true);
 
                 // Send the email
                 mailSender.send(message);
 
-                log.info("Sent status update email for ticket {}", jiraKey);
+                log.info("Sent status update email for ticket {} in thread {}", jiraKey, normalizedMessageId);
                 return null;
             } catch (Exception e) {
                 log.error("Error sending status update email: {}", e.getMessage(), e);
@@ -103,11 +114,14 @@ public class EmailServiceImpl implements EmailService {
 
             try {
                 // Generate a unique message ID
-                String emailMessageId = UUID.randomUUID().toString();
+                String emailMessageId = generateMessageId();
                 
                 // Prepare the email message
                 MimeMessage message = mailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(message, true);
+                
+                // Set Message-ID header
+                message.setHeader("Message-ID", emailMessageId);
                 
                 // Set basic email details
                 helper.setFrom(senderEmail);
@@ -161,7 +175,7 @@ public class EmailServiceImpl implements EmailService {
         boolean isProblemStatus = isProblemStatus(newStatus);
         
         String problemMessage = isProblemStatus 
-            ? "<p style='color: red; font-weight: bold;'>⚠️ IMPORTANT: Functionality is not working properly!</p>"
+            ? "<p style='color: red; font-weight: bold;'>!</p>"
             : "";
         
         return String.format(
@@ -213,6 +227,31 @@ public class EmailServiceImpl implements EmailService {
         
         log.info("Status '{}' not considered a problem status", lowercaseStatus);
         return false;
+    }
+
+    /**
+     * Normalize the message ID to a standard email Message-ID format.
+     * 
+     * @param messageId The original message ID
+     * @return A normalized Message-ID
+     */
+    private String normalizeMessageId(String messageId) {
+        // If it's already in the correct format, return as-is
+        if (messageId.startsWith("<") && messageId.contains("@")) {
+            return messageId;
+        }
+        
+        // If it's a UUID, convert to standard Message-ID format
+        return "<" + messageId + "@applova.io>";
+    }
+
+    /**
+     * Generate a new unique Message-ID.
+     * 
+     * @return A new Message-ID in standard format
+     */
+    private String generateMessageId() {
+        return "<" + UUID.randomUUID().toString() + "@applova.io>";
     }
 }
 
